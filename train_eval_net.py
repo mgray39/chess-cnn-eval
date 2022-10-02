@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch
-import torch.functional as F
+import torch.nn.functional as F
 from data_load_utils import FENDataset
 from torchvision import transforms
 import argparse
@@ -8,15 +8,16 @@ from torch.utils.data import DataLoader
 import logging
 import sys
 import os
+from torch.optim import AdamW
+import numpy as np
 
 fmtstr = "%(asctime)s: (%(filename)s): %(levelname)s: %(funcName)s Line: %(lineno)d - %(message)s"
 datestr = "%Y-%m-%d %H:%M:%S"
 
 
 
-transform = transforms.Compose([transforms.ToTensor(),
-                                transforms.Normalize((0.5, 0.5, 0.5), 
-                                                     (0.5, 0.5, 0.5))])
+transform = transforms.Compose([transforms.Normalize(0.5*np.ones(16), 
+                                                     0.5*np.ones(16))])
 
 
 def main(args):
@@ -88,7 +89,7 @@ class Model(nn.Module):
         for conv_layer in self.residual_list:
             x = self.pool(F.relu(conv_layer(x))) 
         
-        x = torch.flatten(x, 0) 
+        x = torch.flatten(x, 1)#1 because passing batch? 
         
         x = self.fc1(x)
 
@@ -102,12 +103,12 @@ def train(model, device, loss_function, optimizer, epochs, train_loader, test_lo
         total_loss = 0
         model.train()
         for step, batch in enumerate(train_loader):
-            b_tensors = batch[0].to(device)
-            b_labels = batch[1].to(device)
+            b_tensors = batch[0].to(torch.float32).to(device)
+            b_labels = batch[1].to(torch.float32).to(device)
             model.zero_grad()
 
             outputs = model(b_tensors)
-            loss = loss_function(outputs[0], b_labels)
+            loss = loss_function(outputs, b_labels) #[0] on outputs????
 
             total_loss += loss.item()
             loss.backward()
@@ -139,8 +140,8 @@ def test(model, test_loader, device):
 
     with torch.no_grad():
         for step, batch in enumerate(test_loader):
-            b_tensors = batch[0].to(device)
-            b_labels = batch[1].to(device)
+            b_tensors = batch[0].to(torch.float32).to(device)
+            b_labels = batch[1].to(torch.float32).to(device)
 
             outputs = model(b_tensors)
             # loss function goes here. Accuracy will not work
