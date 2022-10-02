@@ -6,11 +6,13 @@ from torchvision import transforms
 import argparse
 from torch.utils.data import DataLoader
 import logging
+import sys
+import os
 
-#standard logging config
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logger.addHandler(logging.StreamHandler(sys.stdout))
+fmtstr = "%(asctime)s: (%(filename)s): %(levelname)s: %(funcName)s Line: %(lineno)d - %(message)s"
+datestr = "%Y-%m-%d %H:%M:%S"
+
+
 
 transform = transforms.Compose([transforms.ToTensor(),
                                 transforms.Normalize((0.5, 0.5, 0.5), 
@@ -19,35 +21,37 @@ transform = transforms.Compose([transforms.ToTensor(),
 
 def main(args):
     
-    #get train loaders
-    train_loader = get_train_data_loader(args.data_dir, args.batch_size)
-    test_loader = get_test_data_loader(args.data_dir, args.batch_size)
+    logging.info(f'chess cnn learning run: \nlr = {args.lr}\nepochs = {args.epochs}\nnumber_of_convolutions = {args.number_of_convolutions}\nnumber_of_filters = {args.number_of_filters}\nbatch_size = {args.batch_size}')
     
-    #loss function - custom to allow explicit hook registration with profiler
-    loss_function = nn.CrossEntropyLoss()
+    model_save_path = f'./models/chess_nc_{args.number_of_convolutions}_nf_{args.number_of_filters}_e_{args.epochs}_bs_{args.batch_size}_lr_{args.lr:.3f}.pth'
+    
+    #get train loaders
+    logging.info('loading datasets...')
+    train_loader = get_fen_data_loader(file_path = args.train_file_path, batch_size = args.batch_size)
+    test_loader = get_fen_data_loader(file_path = args.test_file_path, batch_size = args.batch_size)
+    
+    #loss function
+    loss_function = nn.MSELoss()
     
     #initialise network
-    model = net()
+    logging.info('initialising network...')
+    model = Model(number_of_convolutions = args.number_of_convolutions, number_of_filters = args.number_of_filters)
     
+    logging.info('initialising optimiser...')
     #AdamW optimizer
     optimizer = AdamW(
         model.parameters(),
-        lr=args.lr,  # args.learning_rate - default is 5e-5, our notebook had 2e-5
-        eps=args.eps,  # args.adam_epsilon - default is 1e-8.
+        lr=args.lr  # args.learning_rate - default is 5e-5, our notebook had 2e-5
     )
     
     device=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     
-    logger.info(f'Using: {device}')
+    logging.info(f'Using: {device}')
     
     model = model.to(device)
     
-    hook.register_hook(model)
-    hook.register_loss(loss_function)
-    
-    model = train(model, device, loss_function, optimizer, args.epochs, train_loader, test_loader, hook)
-    
-    model_save_path = os.path.join(args.model_dir, 'model.pth')
+    logging.info('Model training commencing...')
+    model = train(model, device, loss_function, optimizer, args.epochs, train_loader, test_loader)
     
     torch.save(model.to(torch.device('cpu')).state_dict(), model_save_path)
     
@@ -94,7 +98,7 @@ class Model(nn.Module):
 def train(model, device, loss_function, optimizer, epochs, train_loader, test_loader):
     
     for epoch in range(1, epochs + 1):
-        logger.info(f'current epoch: {epoch}')
+        logging.info(f'current epoch: {epoch}')
         total_loss = 0
         model.train()
         for step, batch in enumerate(train_loader):
@@ -107,34 +111,31 @@ def train(model, device, loss_function, optimizer, epochs, train_loader, test_lo
 
             total_loss += loss.item()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             # modified based on their gradients, the learning rate, etc.
             optimizer.step()
             
-            if step % 100  == 0:
-                logger.info(
-                    "Train Epoch: {} [{}/{} ({:.0f}%)] Loss: {:.6f}".format(
+            if step % 1000  == 0:
+                logging.info(
+                    "Train Epoch: {} [{}/{} ({:.1f}%)] Loss: {:.6f}".format(
                         epoch,
                         step * len(batch[0]),
                         len(train_loader.sampler),
                         100.0 * step / len(train_loader),
-                        loss.item(),
+                        loss.item()
                     )
                 )
                 
         #run a test at the end of each epoch to allow evaluation of model loss
-        model = test(model, test_loader, device, hook)
+        model = test(model, test_loader, device)
     
     return model
 
-def test(model, test_loader, device, hook):
+def test(model, test_loader, device):
     
-    if hook:
-        hook.set_mode(modes.EVAL)
+    logging.info('model testing in progress')
     
     model.eval()
-    correct_total = 0
-    bal_acc_tot = 0
+    sum_sq_error_tot = 0
 
     with torch.no_grad():
         for step, batch in enumerate(test_loader):
@@ -144,18 +145,18 @@ def test(model, test_loader, device, hook):
             outputs = model(b_tensors)
             # loss function goes here. Accuracy will not work
             
-            logits = outputs[0]
-            logits = logits.detach().cpu().numpy()
-            label_ids = b_labels.to("cpu").numpy()
-            correct = number_correct(logits, label_ids)
-            correct_total += correct
-            bal_acc = balanced_accuracy_score(label_ids, np.argmax(logits, axis=1).flatten())
-            bal_acc_tot += bal_acc
+            outputs = outputs.detach().cpu().numpy()
+            labels = b_labels.to("cpu").numpy()
             
-            if step % 10 == 0:
-                logger.info(f'Test step: {step}, Accuracy: {correct/len(batch[0])}, Balanced Accuracy: {bal_acc}')
+            sum_sq_error = np.sum((outputs-labels)**2)
+            
+            sum_sq_error_tot += sum_sq_error
+            
+            
+            if step % 1000 == 0:
+                logging.info(f'Test step: {step}, Accuracy: {sum_sq_error/len(batch[0])}')
 
-    logger.info(f"Test set: Accuracy:  {correct_total/len(test_loader.dataset)} Balanced Accuracy Final: {bal_acc_tot/len(test_loader)}")
+    logging.info(f"Test set: MSE:  {sum_sq_error_tot/len(test_loader.dataset)}")
     
     return model
 
@@ -163,13 +164,13 @@ def test(model, test_loader, device, hook):
 if __name__ == '__main__':
     arg_parser = argparse.ArgumentParser()
     
-    arg_parser.add_argument('--train_file_path',
+    arg_parser.add_argument('--train-file-path',
                             default = './prepared_data/train_chess_data.csv',
                             type = str,
                             help = 'Csv file which has two columns FEN and Evaluation representing the training data for this run'
                            )
     
-    arg_parser.add_argument('--test_file_path',
+    arg_parser.add_argument('--test-file-path',
                             default = './prepared_data/test_chess_data.csv',
                             type = str,
                             help = 'Csv file which has two columns FEN and Evaluation representing the test data for this run'
@@ -201,6 +202,21 @@ if __name__ == '__main__':
                             help = 'The number of filters for the convolution layers of the netork')
     
     args = arg_parser.parse_args()
+    
+    
+    if not os.path.exists('./logs'):
+        os.mkdir('./logs')
+                 
+    if not os.path.exists('./models'):
+        os.mkdir('./models')
+                 
+    logging.basicConfig(
+        filename=f"./logs/chess_nc_{args.number_of_convolutions}_nf_{args.number_of_filters}_e_{args.epochs}_bs_{args.batch_size}_lr_{args.lr:.3f}.log",
+        level=logging.DEBUG,
+        filemode="w",
+        format=fmtstr,
+        datefmt=datestr,
+    )
     
     main(args)
     
