@@ -37,7 +37,7 @@ def board_to_tensor(board: chess.Board) -> torch.Tensor:
     array_list.append(create_half_move_clock_draw_tensor(board))
     array_list.append(create_to_move_tensor(board))
     
-    tensor = torch.tensor(np.array(array_list))
+    tensor = torch.tensor(np.array(array_list), dtype = torch.float)
     
     return tensor
 
@@ -109,10 +109,10 @@ def evaluation_mate_handler(df: pd.DataFrame) -> pd.DataFrame:
           .dropna()
           .assign(Evaluation = lambda df: (df['Evaluation']
                                             .mask(df['Evaluation']
-                                                  .str.contains('#-'), '-1000000')))
+                                                  .str.contains('#-'), '-20000')))
           .assign(Evaluation = lambda df: (df['Evaluation']
                                             .mask(df['Evaluation']
-                                                  .str.contains('#+'), '1000000')))
+                                                  .str.contains('#+'), '20000')))
           .assign(Evaluation = lambda df: (df['Evaluation']
                                            .str.replace('\ufeff', '')
                                            .str.replace(r'\s', '', regex=True)
