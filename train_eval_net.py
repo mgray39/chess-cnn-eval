@@ -15,11 +15,6 @@ fmtstr = "%(asctime)s: (%(filename)s): %(levelname)s: %(funcName)s Line: %(linen
 datestr = "%Y-%m-%d %H:%M:%S"
 
 
-
-transform = transforms.Compose([transforms.Normalize(0.5*np.ones(16), 
-                                                     0.5*np.ones(16))])
-
-
 def main(args):
     
     logging.info(f'chess cnn learning run: \nlr = {args.lr}\nepochs = {args.epochs}\nnumber_of_convolutions = {args.number_of_convolutions}\nnumber_of_filters = {args.number_of_filters}\nbatch_size = {args.batch_size}')
@@ -36,7 +31,7 @@ def main(args):
     
     #initialise network
     logging.info('initialising network...')
-    model = Model(number_of_convolutions = args.number_of_convolutions, number_of_filters = args.number_of_filters)
+    model = ResnetModel(number_of_convolutions = args.number_of_convolutions, number_of_filters = args.number_of_filters)
     
     logging.info('initialising optimiser...')
     #AdamW optimizer
@@ -59,14 +54,65 @@ def main(args):
     return 0
 
 
-def get_fen_data_loader(file_path: str, batch_size: int, transform = transform, shuffle = True):
-    
-    fen_dataset = FENDataset(evaluation_file_path=file_path, transform = transform)
-    
-    fen_loader = DataLoader(fen_dataset, batch_size = batch_size, shuffle = shuffle)
-    
-    return fen_loader
+class BasicBlock(nn.Module):
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super().__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride,
+                     padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
+                     padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.downsample = downsample
+        self.stride = stride
 
+    def forward(self, x):
+        identity = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        if self.downsample is not None:
+            identity = self.downsample(x)
+
+        out += identity
+        out = self.relu(out)
+
+        return out
+
+
+class ResnetModel(nn.Module):
+    def __init__(self, number_of_convolutions, number_of_filters): 
+        super().__init__() 
+        self.number_of_convolutions = number_of_convolutions
+        self.number_of_filters = number_of_filters
+        
+        self.basicblock =  BasicBlock(16, number_of_filters)
+        
+        
+        self.block_list = nn.ModuleList([BasicBlock(number_of_filters, number_of_filters) for i in range(number_of_convolutions)])
+        
+        
+        self.fc1 = nn.Linear(16*8*8, 1) 
+    
+    def forward(self, x): 
+        
+        x = self.basicblock(x)
+        
+        for block_layer in self.block_list:
+            x = block_layer(x)
+        
+        x = torch.flatten(x, 1)#1 because passing batch? 
+        
+        x = self.fc1(x)
+
+        return x
+    
 
 class Model(nn.Module):
     def __init__(self, number_of_convolutions, number_of_filters): 
@@ -107,7 +153,7 @@ def train(model, device, loss_function, optimizer, epochs, train_loader, test_lo
             b_labels = batch[1].to(torch.float32).to(device)
             model.zero_grad()
 
-            outputs = model(b_tensors)
+            outputs = model(b_tensors).reshape(-1)
             loss = loss_function(outputs, b_labels) #[0] on outputs????
 
             total_loss += loss.item()
@@ -115,7 +161,7 @@ def train(model, device, loss_function, optimizer, epochs, train_loader, test_lo
             # modified based on their gradients, the learning rate, etc.
             optimizer.step()
             
-            if step % 1000  == 0:
+            if step % 500  == 0:
                 logging.info(
                     "Train Epoch: {} [{}/{} ({:.1f}%)] Loss: {:.6f}".format(
                         epoch,
@@ -131,6 +177,7 @@ def train(model, device, loss_function, optimizer, epochs, train_loader, test_lo
     
     return model
 
+
 def test(model, test_loader, device):
     
     logging.info('model testing in progress')
@@ -143,7 +190,7 @@ def test(model, test_loader, device):
             b_tensors = batch[0].to(torch.float32).to(device)
             b_labels = batch[1].to(torch.float32).to(device)
 
-            outputs = model(b_tensors)
+            outputs = model(b_tensors).reshape(-1)
             # loss function goes here. Accuracy will not work
             
             outputs = outputs.detach().cpu().numpy()
@@ -154,13 +201,35 @@ def test(model, test_loader, device):
             sum_sq_error_tot += sum_sq_error
             
             
-            if step % 1000 == 0:
+            if step % 500 == 0:
                 logging.info(f'Test step: {step}, Accuracy: {sum_sq_error/len(batch[0])}')
 
     logging.info(f"Test set: MSE:  {sum_sq_error_tot/len(test_loader.dataset)}")
     
     return model
 
+
+def div_max(value: int, max_val = 20000):
+    
+    value /= max_val
+    
+    return value
+
+
+def return_float(tensor: torch.Tensor) -> torch.Tensor:
+    
+    tensor = tensor.to(torch.float32)
+    
+    return tensor
+
+
+def get_fen_data_loader(file_path: str, batch_size: int, transform = return_float, target_transform = div_max, shuffle = True):
+    
+    fen_dataset = FENDataset(evaluation_file_path=file_path, transform = transform, target_transform = target_transform)
+    
+    fen_loader = DataLoader(fen_dataset, batch_size = batch_size, shuffle = shuffle)
+    
+    return fen_loader
 
 if __name__ == '__main__':
     arg_parser = argparse.ArgumentParser()

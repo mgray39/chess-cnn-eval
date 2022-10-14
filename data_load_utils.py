@@ -97,22 +97,22 @@ def create_half_move_clock_draw_tensor(board: chess.Board) -> np.ndarray:
 def create_to_move_tensor(board: chess.Board) -> np.ndarray:
     
     if board.turn:
-        return np.hstack((np.zeros(32), np.ones(32))).reshape(8,8)
+        return (np.zeros(64)).reshape(8,8)
     
     else:
-        return np.hstack((np.ones(32), np.zeros(32))).reshape(8,8)
+        return (np.ones(64)).reshape(8,8)
     
     
-def evaluation_mate_handler(df: pd.DataFrame) -> pd.DataFrame:
+def evaluation_mate_handler(df: pd.DataFrame, mate_value: str = '20000') -> pd.DataFrame:
     
     df = (df
           .dropna()
           .assign(Evaluation = lambda df: (df['Evaluation']
                                             .mask(df['Evaluation']
-                                                  .str.contains('#-'), '-20000')))
+                                                  .str.contains('#-'), '-'+mate_value)))
           .assign(Evaluation = lambda df: (df['Evaluation']
                                             .mask(df['Evaluation']
-                                                  .str.contains('#+'), '20000')))
+                                                  .str.contains('#+'), mate_value)))
           .assign(Evaluation = lambda df: (df['Evaluation']
                                            .str.replace('\ufeff', '')
                                            .str.replace(r'\s', '', regex=True)
