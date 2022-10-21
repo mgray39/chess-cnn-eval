@@ -17,9 +17,13 @@ datestr = "%Y-%m-%d %H:%M:%S"
 
 def main(args):
     
-    logging.info(f'chess cnn learning run: \nlr = {args.lr}\nepochs = {args.epochs}\nnumber_of_convolutions = {args.number_of_convolutions}\nnumber_of_filters = {args.number_of_filters}\nbatch_size = {args.batch_size}')
+    if args.warm_start_dir is not None:
+        ws = True
     
-    model_save_path = f'./models/chess_nc_{args.number_of_convolutions}_nf_{args.number_of_filters}_e_{args.epochs}_bs_{args.batch_size}_lr_{args.lr:.3f}.pth'
+    logging.info(f'chess cnn learning run: \nlr = {args.lr}\nepochs = {args.epochs}\nnumber_of_convolutions = {args.number_of_convolutions}\nnumber_of_filters = {args.number_of_filters}\nbatch_size = {args.batch_size}\nws = {ws}')
+    
+    
+    model_save_path = f'./models/chess_nc_{args.number_of_convolutions}_nf_{args.number_of_filters}_e_{args.epochs}_bs_{args.batch_size}_lr_{args.lr:.5f}_ws_{ws}.pth'
     
     #get train loaders
     logging.info('loading datasets...')
@@ -32,6 +36,9 @@ def main(args):
     #initialise network
     logging.info('initialising network...')
     model = ResnetModel(number_of_convolutions = args.number_of_convolutions, number_of_filters = args.number_of_filters)
+    
+    if ws:
+        model = warm_start_handler(model, args.warm_start_dir)
     
     logging.info('initialising optimiser...')
     #AdamW optimizer
@@ -231,6 +238,22 @@ def get_fen_data_loader(file_path: str, batch_size: int, transform = return_floa
     
     return fen_loader
 
+def warm_start_handler(model, model_path):
+    
+    epochs = model_path.split('_e_')[-1].split('_')[0]
+    
+    logging.info(f"Reloading model from {model_path}. Epoch counts will need to be adjusted in weights file")
+    
+    try:
+        model = model.load_state_dict(torch.load(model_path))
+    
+    except Exception:
+        raise ValueError('The provided path is not valid for the class of model. Please respecify the model being used and retry.')
+                 
+    
+    return model
+
+
 if __name__ == '__main__':
     arg_parser = argparse.ArgumentParser()
     
@@ -269,10 +292,17 @@ if __name__ == '__main__':
     arg_parser.add_argument('--number-of-filters',
                             default = 10, 
                             type = int,
-                            help = 'The number of filters for the convolution layers of the netork')
+                            help = 'The number of filters for the convolution layers of the network')
+    
+    arg_parser.add_argument('--warm-start-dir',
+                            default = None,
+                            type = str,
+                            help = 'File path for previous weights of model. If none, assumes a new network is to be trained')
     
     args = arg_parser.parse_args()
     
+    if args.warm_start_dir is not None:
+        ws = True
     
     if not os.path.exists('./logs'):
         os.mkdir('./logs')
@@ -281,7 +311,7 @@ if __name__ == '__main__':
         os.mkdir('./models')
                  
     logging.basicConfig(
-        filename=f"./logs/chess_nc_{args.number_of_convolutions}_nf_{args.number_of_filters}_e_{args.epochs}_bs_{args.batch_size}_lr_{args.lr:.3f}.log",
+        filename=f"./logs/chess_nc_{args.number_of_convolutions}_nf_{args.number_of_filters}_e_{args.epochs}_bs_{args.batch_size}_lr_{args.lr:.5f}_ws_{ws}.log",
         level=logging.DEBUG,
         filemode="w",
         format=fmtstr,
