@@ -20,6 +20,9 @@ def main(args):
     if args.warm_start_dir is not None:
         ws = True
     
+    if args.warm_start_dir is None:
+        ws = False
+    
     logging.info(f'chess cnn learning run: \nlr = {args.lr}\nepochs = {args.epochs}\nnumber_of_convolutions = {args.number_of_convolutions}\nnumber_of_filters = {args.number_of_filters}\nbatch_size = {args.batch_size}\nws = {ws}')
     
     
@@ -245,7 +248,7 @@ def warm_start_handler(model, model_path):
     logging.info(f"Reloading model from {model_path}. Epoch counts will need to be adjusted in weights file")
     
     try:
-        model = model.load_state_dict(torch.load(model_path))
+        model.load_state_dict(torch.load(model_path))
     
     except Exception:
         raise ValueError('The provided path is not valid for the class of model. Please respecify the model being used and retry.')
@@ -303,6 +306,8 @@ if __name__ == '__main__':
     
     if args.warm_start_dir is not None:
         ws = True
+    if args.warm_start_dir is None:
+        ws = False
     
     if not os.path.exists('./logs'):
         os.mkdir('./logs')

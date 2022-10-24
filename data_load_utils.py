@@ -23,12 +23,25 @@ def fen_translator(fen_string: str):
 
 
 def board_to_tensor(board: chess.Board) -> torch.Tensor:
+    """
+    Expects a board object and will return a tensor object.
+    
+    Rewritten to remove string manipulations.
+    """
+    
     
     array_list = []
     
     for colour in colour_dict.values():
         for piece in piece_dict.values():
-            piece_array = np.reshape(np.array(str(board.pieces(piece, colour)).replace(' ', ',').replace('.','0').replace('\n', ',').split(',')), (8,8)).astype(int)
+            piece_positions = np.array(list(board.pieces(piece, colour)))
+            
+            piece_array = np.zeros(64)
+            for position in piece_positions:
+                piece_array[position] = 1
+            
+            
+            piece_array = np.reshape(piece_array, (8,8))[-1::-1]
             array_list.append(piece_array)
     
     
@@ -40,7 +53,6 @@ def board_to_tensor(board: chess.Board) -> torch.Tensor:
     tensor = torch.tensor(np.array(array_list), dtype = torch.float)
     
     return tensor
-
 
 def create_ep_tensor(board: chess.Board) -> np.ndarray:
     """
